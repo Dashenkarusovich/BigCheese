@@ -3,6 +3,7 @@ Big Cheese Languages — Telegram Bot v3
 Новое: двуязычный (RU/EN), выбор языка при /start
 """
 import logging, sqlite3, asyncio, os
+from datetime import datetime
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler,
@@ -104,23 +105,33 @@ def mark_cta(uid):
     c.execute("UPDATE users SET clicked_cta=1 WHERE user_id=?", (uid,))
     conn.commit(); conn.close()
 
-async def send_lead_to_sheet(user, lang, segment, lead_type, comment=""):
+def now_str():
+    return datetime.now().strftime("%d.%m.%Y %H:%M")
+
+
+async def send_lead_to_sheet(user, lang, segment, action, message="", status="Новая заявка"):
     """Send bot lead to Google Sheets via Apps Script Web App."""
     webhook_url = getattr(config, "SHEET_WEBHOOK_URL", "")
     if not webhook_url:
         log.info("SHEET_WEBHOOK_URL is empty; skipping sheet lead sync")
         return
 
+    row = get_user(user.id)
+    subscribed_at = row[2][:10] if row and row[2] else ""
+
     payload = {
         "name": user.first_name or "",
         "username": f"@{user.username}" if user.username else "",
         "telegram_id": str(user.id),
+        "timestamp": now_str(),
+        "source": "Telegram Bot",
         "lang": (lang or "").upper(),
         "segment": segment or "",
-        "lead_type": lead_type,
-        "source": "Telegram Bot",
-        "status": "New bot lead",
-        "comment": comment or "",
+        "action": action or "",
+        "message": message or "",
+        "status": status or "Новая заявка",
+        "channel": "https://t.me/BigCheesemaster",
+        "subscribed_at": subscribed_at,
     }
     try:
         async with httpx.AsyncClient(timeout=12) as client:
@@ -128,6 +139,7 @@ async def send_lead_to_sheet(user, lang, segment, lead_type, comment=""):
             log.info("Sheet sync %s: %s", r.status_code, r.text[:200])
     except Exception as e:
         log.warning("Sheet sync error: %s", e)
+
 
 def get_user(uid):
     conn = sqlite3.connect(DB_PATH)
@@ -271,54 +283,113 @@ async def handle_answers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if ans:
         await query.edit_message_text(ans)
 
+
+async def send_admin_lead_card(ctx, user, lang, segment, action="Записаться на урок"):
+    """Send a clean lead card to Darya in Telegram."""
+    flag = "🇷🇺" if lang == "ru" else "🌍"
+    seg_label = msg.SEGMENT_LABELS.get(lang, msg.SEGMENT_LABELS["ru"]).get(segment or "other", segment or "other")
+    username_line = f"@{user.username}" if user.username else "—"
+    mention = f"<a href='tg://user?id={user.id}'>{user.first_name or user.id}</a>"
+
+    if lang == "ru":
+        text = f"""{flag} <b>Новая заявка из бота!</b>
+
+👤 Пользователь: {mention}
+💬 Username: {username_line}
+🆔 Telegram ID: <code>{user.id}</code>
+🌐 Язык интерфейса: RU
+🎯 Сегмент: {seg_label}
+✅ Действие: {action}
+📅 Дата заявки: {now_str()}
+
+<i>Напиши ему первой — он ждёт 🙂</i>"""
+    else:
+        text = f"""{flag} <b>New lead from Telegram bot!</b>
+
+👤 User: {mention}
+💬 Username: {username_line}
+🆔 Telegram ID: <code>{user.id}</code>
+🌐 Interface language: EN
+🎯 Segment: {seg_label}
+✅ Action: {action}
+📅 Request date: {now_str()}
+
+<i>Message them first — they are waiting 🙂</i>"""
+
+    try:
+        await ctx.bot.send_message(config.ADMIN_CHAT_ID, text, parse_mode="HTML")
+    except Exception as e:
+        log.warning("Admin lead card error: %s", e)
+
+
+async def send_admin_question(ctx, user, lang, segment, text):
+    """Send user's free-text question to Darya."""
+    flag = "🇷🇺" if lang == "ru" else "🌍"
+    seg_label = msg.SEGMENT_LABELS.get(lang, msg.SEGMENT_LABELS["ru"]).get(segment or "other", segment or "other")
+    username_line = f"@{user.username}" if user.username else "—"
+    mention = f"<a href='tg://user?id={user.id}'>{user.first_name or user.id}</a>"
+
+    admin_text = f"""{flag} <b>Вопрос из бота</b>
+
+👤 Пользователь: {mention}
+💬 Username: {username_line}
+🆔 Telegram ID: <code>{user.id}</code>
+🌐 Язык интерфейса: {lang.upper()}
+🎯 Сегмент: {seg_label}
+
+💭 Сообщение:
+{text}
+
+<i>Ответь лично в течение 24 часов 🙂</i>"""
+
+    try:
+        await ctx.bot.send_message(config.ADMIN_CHAT_ID, admin_text, parse_mode="HTML")
+    except Exception as e:
+        log.warning("Admin question notify error: %s", e)
+
+
 async def handle_cta(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
     row = get_user(uid)
     lang = row[0] if row else "ru"
+    segment = row[1] if row and row[1] else "other"
 
     if query.data == "cta_book":
         mark_cta(uid)
         await query.edit_message_text(msg.CTA_BOOKED[lang], parse_mode="HTML")
         log.info("CTA booked: %s [%s]", uid, lang)
-        # Уведомление Дарье
-        try:
-            u = query.from_user
-            seg = row[1] or "other"
-            subscribed = row[2][:10] if row[2] else "—"
-            username = row[3] or str(uid)
-            flag = "🇷🇺" if lang=="ru" else "🌍"
-            seg_label = msg.SEGMENT_LABELS[lang].get(seg, seg)
-            mention = f"<a href='tg://user?id={uid}'>{u.first_name or uid}</a>"
-            await ctx.bot.send_message(
-                config.ADMIN_CHAT_ID,
-                msg.ADMIN_NOTIFICATION.format(
-                    flag=flag, mention=mention, lang=lang.upper(),
-                    segment=seg_label, subscribed=subscribed, username=username
-                ), parse_mode="HTML"
-            )
-        except Exception as e:
-            log.warning("Admin notify error: %s", e)
+
+        await send_admin_lead_card(
+            ctx,
+            query.from_user,
+            lang=lang,
+            segment=segment,
+            action="Записаться на урок" if lang == "ru" else "Book a lesson"
+        )
 
         await send_lead_to_sheet(
             query.from_user,
             lang=lang,
-            segment=row[1] if row and row[1] else "other",
-            lead_type="Lesson request",
-            comment="Clicked CTA: book a lesson"
+            segment=segment,
+            action="Записаться на урок" if lang == "ru" else "Book a lesson",
+            message="Нажал кнопку записи" if lang == "ru" else "Clicked booking button",
+            status="Новая заявка" if lang == "ru" else "New lead"
         )
 
     elif query.data == "cta_question":
         resp = "Напиши свой вопрос — Дарья ответит лично в течение 24 часов 🙂" if lang=="ru" \
                else "Write your question — Darya will reply personally within 24 hours 🙂"
         await query.edit_message_text(resp)
+
         await send_lead_to_sheet(
             query.from_user,
             lang=lang,
-            segment=row[1] if row and row[1] else "other",
-            lead_type="Question",
-            comment="Clicked CTA: has a question"
+            segment=segment,
+            action="Есть вопрос" if lang == "ru" else "Has a question",
+            message="Нажал кнопку вопроса" if lang == "ru" else "Clicked question button",
+            status="Вопрос" if lang == "ru" else "Question"
         )
 
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -326,19 +397,19 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     row = get_user(user.id)
     lang = row[0] if row else "ru"
-    try:
-        await ctx.bot.send_message(config.ADMIN_CHAT_ID,
-            f"💬 @{user.username or user.id} ({user.first_name}) [{lang.upper()}]:\n\n{text}")
-    except Exception as e:
-        log.warning("Forward error: %s", e)
+    segment = row[1] if row and row[1] else "other"
+
+    await send_admin_question(ctx, user, lang, segment, text)
 
     await send_lead_to_sheet(
         user,
         lang=lang,
-        segment=row[1] if row and row[1] else "other",
-        lead_type="Question message",
-        comment=text
+        segment=segment,
+        action="Свободное сообщение" if lang == "ru" else "Free message",
+        message=text,
+        status="Вопрос" if lang == "ru" else "Question"
     )
+
     await update.message.reply_text(msg.FREE_TEXT_REPLY[lang])
 
 # ── ПЛАНИРОВЩИК ───────────────────────────────────────────────────
