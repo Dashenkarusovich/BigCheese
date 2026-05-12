@@ -273,14 +273,19 @@ CTA_BOOKED = {
 
 Дарья ответит тебе лично в течение 24 часов — договоритесь об удобном времени.
 
+Пока ждёшь — посмотри наш канал 👉 https://t.me/BigCheesemaster
+
 Если хочешь написать прямо сейчас — просто ответь сюда 🙂""",
 
     "en": """Awesome! 🎉
 
 Darya will reply personally within 24 hours to schedule a convenient time.
 
-If you'd like to reach out right now — just reply here 🙂"""
+While you wait — check our channel 👉 https://t.me/BigCheesemaster
+
+If you want to write now — just reply here 🙂"""
 }
+
 
 # ══ УВЕДОМЛЕНИЕ ДАРЬЕ ═══════════════════════════════════════════════
 

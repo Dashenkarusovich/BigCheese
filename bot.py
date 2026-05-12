@@ -389,8 +389,8 @@ async def handle_cta(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "cta_question":
-        resp = "Напиши свой вопрос — Дарья ответит лично в течение 24 часов 🙂" if lang=="ru" \
-               else "Write your question — Darya will reply personally within 24 hours 🙂"
+        resp = "Напиши свой вопрос — Дарья ответит лично в течение 24 часов 🙂\n\nПока ждёшь — посмотри наш канал 👉 https://t.me/BigCheesemaster" if lang=="ru" \
+               else "Write your question — Darya will reply personally within 24 hours 🙂\n\nWhile you wait — check our channel 👉 https://t.me/BigCheesemaster"
         await query.edit_message_text(resp)
 
         await send_lead_to_sheet(
