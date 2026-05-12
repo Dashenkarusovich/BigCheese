@@ -270,7 +270,17 @@ async def handle_segment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if seg:
         set_segment(uid, seg)
         confirm = msg.SEG_CONFIRM[lang][seg]
-        await query.edit_message_text(confirm+"\n\n"+msg.DAY0_CONFIRM[lang], parse_mode="HTML")
+        await query.edit_message_text(confirm + "\n\n" + msg.DAY0_CONFIRM[lang], parse_mode="HTML")
+
+        # Immediate CTA after segment selection.
+        # This lets a warm user request a lesson now, while the daily funnel still continues later.
+        await ctx.bot.send_message(
+            chat_id=uid,
+            text=msg.DAY6[lang],
+            reply_markup=kb_cta(lang),
+            parse_mode="HTML"
+        )
+
         log.info("Segment: %s → %s [%s]", uid, seg, lang)
 
 async def handle_answers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
