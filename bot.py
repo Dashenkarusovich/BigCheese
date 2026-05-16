@@ -186,7 +186,8 @@ def kb_segment(lang):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(btns[0], callback_data="seg_relocation")],
         [InlineKeyboardButton(btns[1], callback_data="seg_career")],
-        [InlineKeyboardButton(btns[2], callback_data="seg_other")],
+        [InlineKeyboardButton(btns[2], callback_data="seg_family")],
+        [InlineKeyboardButton(btns[3], callback_data="seg_speaking")],
     ])
 
 def kb_when(lang):
@@ -217,6 +218,7 @@ def kb_cta(lang):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(btns[0], callback_data="cta_book")],
         [InlineKeyboardButton(btns[1], callback_data="cta_question")],
+        [InlineKeyboardButton(msg.BTN_CHANNEL[lang], url=msg.CHANNEL_URL)],
     ])
 
 # ── ХЭНДЛЕРЫ ──────────────────────────────────────────────────────
@@ -265,18 +267,24 @@ async def handle_segment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = query.from_user.id
     row = get_user(uid)
     lang = row[0] if row else "ru"
-    seg_map = {"seg_relocation":"relocation","seg_career":"career","seg_other":"other"}
+    seg_map = {
+        "seg_relocation": "relocation",
+        "seg_career": "career",
+        "seg_family": "family",
+        "seg_speaking": "speaking",
+        "seg_other": "other",
+    }
     seg = seg_map.get(query.data)
     if seg:
         set_segment(uid, seg)
         confirm = msg.SEG_CONFIRM[lang][seg]
         await query.edit_message_text(confirm + "\n\n" + msg.DAY0_CONFIRM[lang], parse_mode="HTML")
 
-        # Immediate CTA after segment selection.
-        # This lets a warm user request a lesson now, while the daily funnel still continues later.
+        # Immediate segment-specific CTA after segment selection.
+        # The daily funnel still continues later, but a warm user can write Darya now.
         await ctx.bot.send_message(
             chat_id=uid,
-            text=msg.DAY6[lang],
+            text=msg.AFTER_SEGMENT[lang][seg],
             reply_markup=kb_cta(lang),
             parse_mode="HTML"
         )
@@ -389,15 +397,13 @@ async def handle_cta(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "cta_question":
-        resp = "Напиши свой вопрос — Дарья ответит лично в течение 24 часов 🙂\n\nПока ждёшь — посмотри наш канал 👉 https://t.me/BigCheesemaster" if lang=="ru" \
-               else "Write your question — Darya will reply personally within 24 hours 🙂\n\nWhile you wait — check our channel 👉 https://t.me/BigCheesemaster"
-        await query.edit_message_text(resp)
+        await query.edit_message_text(msg.CTA_QUESTION[lang], parse_mode="HTML")
 
         await send_lead_to_sheet(
             query.from_user,
             lang=lang,
             segment=segment,
-            action="Есть вопрос" if lang == "ru" else "Has a question",
+            action="Написать Дарье" if lang == "ru" else "Message Darya",
             message="Нажал кнопку вопроса" if lang == "ru" else "Clicked question button",
             status="Вопрос" if lang == "ru" else "Question"
         )
@@ -428,9 +434,9 @@ async def send_scheduled(bot):
     log.info("⏰ Tick | users:%d seg:%d", total, seg)
 
     for day_col, delay, get_content in [
-        ("day2_sent", SCHEDULE["day2_sent"], lambda l,s,_: (msg.DAY2[l][s], kb_when(l) if s=="relocation" else kb_career(l) if s=="career" else kb_other(l))),
-        ("day4_sent", SCHEDULE["day4_sent"], lambda l,s,_: (msg.DAY4[l][s], None)),
-        ("day6_sent", SCHEDULE["day6_sent"], lambda l,s,_: (msg.DAY6[l], kb_cta(l))),
+        ("day2_sent", SCHEDULE["day2_sent"], lambda l,s,_: (msg.DAY2[l].get(s, msg.DAY2[l]["other"]), kb_cta(l))),
+        ("day4_sent", SCHEDULE["day4_sent"], lambda l,s,_: (msg.DAY4[l].get(s, msg.DAY4[l]["other"]), kb_cta(l))),
+        ("day6_sent", SCHEDULE["day6_sent"], lambda l,s,_: (msg.DAY6[l].get(s, msg.DAY6[l]["other"]), kb_cta(l))),
         ("day7_sent", SCHEDULE["day7_sent"], lambda l,s,clicked: (None,None) if clicked else (msg.DAY7[l], kb_cta(l))),
     ]:
         users = get_users_for_day(day_col, delay)
